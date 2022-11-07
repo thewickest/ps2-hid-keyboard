@@ -24,6 +24,7 @@
 #include "Adafruit_BluefruitLE_UART.h"
 
 #include "BluefruitConfig.h"
+#include "KeyboardConfig.h"
 
 #include "ps2_Keyboard.h"
 #include "ps2_AnsiTranslator.h"
@@ -116,7 +117,6 @@ void setup(void)
   delay(500);
 
   Serial.begin(115200);
-  Serial1.begin(115200);
   Serial.println(F("Adafruit Bluefruit HID Keyboard Example"));
   Serial.println(F("---------------------------------------"));
 
@@ -215,9 +215,9 @@ void loop(void)
 
     if (usbCode.gesture == 1) {
       ps2::KeyboardLeds newLeds =
-        (usbCode.hidCode == 0x39 ? ps2::KeyboardLeds::capsLock : ps2::KeyboardLeds::none)
-        | (usbCode.hidCode == 0x53 ? ps2::KeyboardLeds::numLock : ps2::KeyboardLeds::none)
-        | (usbCode.hidCode == 0x47 ? ps2::KeyboardLeds::scrollLock : ps2::KeyboardLeds::none);
+        (usbCode.hidCode == CAPS_LOCK ? ps2::KeyboardLeds::capsLock : ps2::KeyboardLeds::none)
+        | (usbCode.hidCode == NUM_LOCK ? ps2::KeyboardLeds::numLock : ps2::KeyboardLeds::none)
+        | (usbCode.hidCode == SCROLL_LOCK ? ps2::KeyboardLeds::scrollLock : ps2::KeyboardLeds::none);
 
       /*XOR because I want to store the leds everytime it is 1 on that key*/
       uint8_t ledsValue = (uint8_t)newLeds ^ (uint8_t)lastLedSent;
@@ -225,6 +225,12 @@ void loop(void)
       newLeds = (ps2::KeyboardLeds)ledsValue;
       ps2Keyboard.sendLedStatus(newLeds);
       lastLedSent = newLeds;
+      /*if((uint8_t)newLeds & SCROLL_LOCK){ /*If Scroll Lock is selected, entering the Bluetooth Mode
+        ble.waitForOK();
+        ble.print("AT+BleKeyboard=");
+        ble.println(ble.println("AT+HWVBAT"));
+        ble.waitForOK();
+      }*/
     }
   }
 }
@@ -234,29 +240,21 @@ void sendScanCode(ps2::UsbKeyAction usbCode) {
   if (usbCode.gesture == 1) {
     uint8_t pressedKey = (uint8_t)usbCode.hidCode; //ej.: 0xE0, 0xE1, etc...
     /*Esto es para los modificadores. En la tabla de USB/HID codes los mods tienen los valores del 0xE0 hasta el 0xE7*/
-    if (pressedKey >= 0xE0) {     /*Modificadores*/
-      uint8_t desp = ~0xE0 & pressedKey; //ej.: With modkey == 0xE1 should give 0x01
+    if (pressedKey >= LEFT_CTRL) {     /*Modificadores*/
+      uint8_t desp = ~LEFT_CTRL & pressedKey; //ej.: With modkey == 0xE1 should give 0x01
       uint8_t modKey = 0x01 << desp; //ej.: 0x01, 0x02, etc...
-      sumKey = modKey ^ lastKeyCode;
-      /*ble.print("AT+BleKeyboardCode=");
-      ble.print(sumKey, HEX);
-      ble.print("-00");
-      ble.println(sixKeys);*/
+      sumKey = modKey ^ lastKeyCode; 
       sendKeys();
       lastKeyCode = sumKey;
     } else {                     /*Teclas normales*/
       pushKey(pressedKey); //concat the pressedKey into the array of pressed Keys. It contains 6 keys maximum
       concatArray(); //returns a concat string into the string sixKeys;
-      /*ble.print("AT+BleKeyboardCode=");
-      ble.print(sumKey,HEX);
-      ble.print("-00");
-      ble.println(sixKeys);*/
       sendKeys();
     }
   } else if (usbCode.gesture == 0) {
     uint8_t pressedKey = (uint8_t) usbCode.hidCode;
-    if (pressedKey >= 0xE0) {
-      uint8_t desp = ~0xE0 & pressedKey; //ej.: With modkey == 0xE1 should give 0x01
+    if (pressedKey >= LEFT_CTRL) {
+      uint8_t desp = ~LEFT_CTRL & pressedKey; //ej.: With modkey == 0xE1 should give 0x01
       uint8_t modKey = 0x01 << desp; //ej.: 0x01, 0x02, etc...
       sumKey = modKey ^ lastKeyCode;
     }
@@ -264,7 +262,7 @@ void sendScanCode(ps2::UsbKeyAction usbCode) {
     popKey(pressedKey);
     concatArray();
     if(sixKeys == "" && sumKey == 0x00){
-      ble.println("AT+BleKeyboardCode=00-00"); 
+      sendClose();
     }else{
       sendKeys();
     }
@@ -272,13 +270,11 @@ void sendScanCode(ps2::UsbKeyAction usbCode) {
 
   /*No esperamos al OK porque sino cada tecla se envía muy lenta*/
   /*Ver la forma de cómo enviar chunks de información si queremos incluir esto*/
-  /*if( ble.waitForOK() )
-    {
+  /*if( ble.waitForOK() ){
     Serial.println( F("OK!") );
-    }else
-    {
+  }else{
     Serial.println( F("FAILED!") );
-    }*/
+  }*/
 }
 
 void setUpKeyboard() {
@@ -300,6 +296,10 @@ void sendKeys(){
   ble.print(sumKey,HEX);
   ble.print("-00");
   ble.println(sixKeys);
+}
+
+void sendClose(){
+  ble.println("AT+BleKeyboardCode=00-00"); 
 }
 
 void pushKey(uint8_t key) {
@@ -330,12 +330,4 @@ void concatArray(){
     }
   }
   sixKeys = conc;
-}
-
-void blePrintArr(uint8_t keys[]) {
-  for (int i = 0; i < 6; i++) {//the number of keys that can be sent
-    ble.print("-");
-    ble.print(keys[1],HEX);    
-  }
-  ble.println();
 }
